@@ -15,6 +15,8 @@ func (ws *WSServer) parseMessage(client *wsClient, mType int, data []byte) {
 		ws.handleSendGroupMsg(client, data)
 	case 5:
 		ws.handleGetClientPubkeyMsg(client, data)
+	case 7:
+		ws.handleSendSingleMsg(client, data)
 	default:
 		return
 	}
@@ -156,7 +158,7 @@ type SendSingleMsgReq struct {
 	} `json:"data"`
 }
 
-// 对方不在线发送的消息
+// 点对点加密的消息
 func (wss *WSServer) handleSendSingleMsg(wsc *wsClient, data []byte) {
 	sendSingleMsgReq := &SendSingleMsgReq{}
 	err := json.Unmarshal(data, sendSingleMsgReq)
@@ -164,6 +166,6 @@ func (wss *WSServer) handleSendSingleMsg(wsc *wsClient, data []byte) {
 		log.Println(err)
 		return
 	}
-	log.Println(sendSingleMsgReq.Data.SendUUID, sendSingleMsgReq.Data.RecvUUID)
+	wss.wsClientToConn[sendSingleMsgReq.Data.RecvUUID].WriteMessage(1, data)
 
 }

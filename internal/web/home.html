@@ -34,6 +34,10 @@
 
                 // 存储密钥对
                 const clientToPubkey = new Map()
+                // 存储节点信息
+                const clientToMessage = new Map()
+                clientToMessage.set("0000000000",["-------------------"])
+
 
                 function ShowCommunicateClient(event){
                     console.log(event.target.textContent)
@@ -90,7 +94,25 @@
                 }
 
                 function SendSingleMessage(msg) {
-
+                    sendMessage = {
+                        "type": 7,
+                        "message": "发送点对点加密消息",
+                        "data": {
+                            "send_uuid": "123",
+                            "recv_uuid": "123",
+                            "content": "123"
+                        }
+                    }
+                    sendMessage.data.send_uuid = currentClient.value
+                    sendMessage.data.recv_uuid = communicateClinet.value
+                    var recv_pubkey = clientToPubkey.get(communicateClinet.value)
+                    var pub = KEYUTIL.getKey(recv_pubkey)
+                    console.log("pub:",pub)
+                    var enc2 = KJUR.crypto.Cipher.encrypt(msg,pub)
+                    sendMessage.data.content = enc2
+                    sendMessage = JSON.stringify(sendMessage)
+                    console.log("加密消息：",sendMessage)
+                    conn.send(sendMessage)
                 }
 
 
@@ -107,15 +129,19 @@
                             alert("无法添加自己")
                             return false
                         }
+                        if(messageClient.value == 'none'){
+                            alert("没有选中该消息客户端")
+                            return false
+                        }
                         // 发送消息，向WSS获取添加客户端的公钥
                         ConnectClientReq()
 
                         // 不管是否请求到了公钥，先添加客户端到前端列表中，发送消息的时候再检测
-                        var item = document.createElement("li");
-                        item.id = "message"
-                        item.addEventListener("click" ,ShowCommunicateClient)
-                        item.innerText = messageClient.value;
-                        client_list.appendChild(item)
+                        // var item = document.createElement("li");
+                        // item.id = "message"
+                        // item.addEventListener("click" ,ShowCommunicateClient)
+                        // item.innerText = messageClient.value;
+                        // client_list.appendChild(item)
                     }
 
                     function appendLog(item) {
@@ -147,7 +173,8 @@
                             return false
                         }
                         // 如果是点对点消息，需要加密
-                        conn.send(msg.value);
+                        SendSingleMessage(msg.value)
+                        clientToMessage.set(messageClient,["----------"])
                         // ConnectMessageReq("4321")
                         // conn.send(sendMessage)
                         msg.value = "";
@@ -188,8 +215,25 @@
                             if (res["type"] == 6) {
                                // clientToPubkey[res["data"]["add_client"].toString()] = res["data"]["pubkey"]
                                 clientToPubkey.set(res["data"]["add_client"],res["data"]["pubkey"])
-                                console.log("存储的公钥：",clientToPubkey)
+                                if(clientToMessage.hasOwnProperty(res["data"]["add_client"]) == false){
+                                    if (res["data"]["add_client"] != currentClient){
+                                        // 添加节点
+                                        var item = document.createElement("li");
+                                        item.id = "message"
+                                        item.addEventListener("click" ,ShowCommunicateClient)
+                                        item.innerText = res["data"]["add_client"];
+                                        client_list.appendChild(item)
+                                    }
+                                }
                             }
+                            if (res["type"] == 7) {
+                                var prv = KEYUTIL.getKey(prvKey);
+                                var dec_msg = KJUR.crypto.Cipher.decrypt(res["data"]["content"],prv);
+                                console.log("解密内容:",dec_msg)
+                            }
+
+
+
                             // 输出完整未解析的消息
                             // var messages = evt.data.split('\n');
                             // for (var i = 0; i < messages.length; i++) {
