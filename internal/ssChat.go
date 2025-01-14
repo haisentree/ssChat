@@ -20,6 +20,7 @@ func (s SSChatServer) Run() {
 	flag.Parse()
 	files := http.FileServer(http.Dir("../internal/web"))
 
+	wss.ListenBroadcast()
 	http.HandleFunc("/", serveHome)
 	http.HandleFunc("/ws", wss.wsHandle)
 	http.Handle("/web/", http.StripPrefix("/web/", files))

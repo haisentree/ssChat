@@ -4,6 +4,7 @@
     <title>Chat Example</title>
     <link rel="stylesheet" href="/web/css/home.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/8.0.20/jsrsasign-all-min.js"></script>
     <script type="importmap">
         {
           "imports": {
@@ -12,108 +13,236 @@
         }
     </script>
     <script type="module">
-        import { createApp, ref } from 'vue'
+        import { createApp, ref ,onMounted } from 'vue'
 
         createApp({
             setup() {
                 const message = ref('Hello Vue!')
                 // 默认值为广播群组
-                const currentClinet = ref('coffee')
+                const communicateClinet = ref('0000000000')
+                const messageClient = ref('none')
+                const currentClient = ref('none')
+
+                var conn;
+                var sendMessage
+
+                var rsaKeypair = KEYUTIL.generateKeypair("RSA", 1024);
+                var pubKey = KEYUTIL.getPEM(rsaKeypair.pubKeyObj);
+                var prvKey = KEYUTIL.getPEM(rsaKeypair.prvKeyObj,'PKCS8PRV');
+
+                // 创建一个变量，存储消息
+
+                // 存储密钥对
+                const clientToPubkey = new Map()
 
                 function ShowCommunicateClient(event){
                     console.log(event.target.textContent)
-                    currentClinet.value = event.target.textContent
+                    communicateClinet.value = event.target.textContent
                 }
 
                 function ShowMessageClient(event){
                     console.log(event.target.value)
                 }
 
+                function ConnectMessageReq(event) {
+                    document.getElementById('ConnectButton').disabled = true;
+                    sendMessage = {
+                        type:1,
+                        message:"WebSocket连接请求",
+                        data:{
+                            "pubkey":"123",
+                        }
+                    }
+                    sendMessage.data.pubkey = pubKey
+                    sendMessage = JSON.stringify(sendMessage)
+                   // sendMessage.data.pubkey = mypubkey
+                    // console.log(sendMessage)
+                    conn.send(sendMessage)
+                }
+
+                function SendGroupMessage(msg) {
+                    sendMessage = {
+                        type:3,
+                        message:"广播消息",
+                        data:{
+                            send_uuid:"123",
+                            content:"msg"
+                        }
+                    }
+                    sendMessage.data.send_uuid = currentClient.value
+                    sendMessage.data.content = msg
+                    sendMessage = JSON.stringify(sendMessage)
+                    conn.send(sendMessage)
+                   // console.log("type 3",sendMessage)
+                }
+
+                function ConnectClientReq(){
+                    sendMessage = {
+                        "type": 5,
+                        "message": "获取公钥请求",
+                        "data": {
+                            "add_client": "123"
+                        }
+                    }
+                    sendMessage.data.add_client = messageClient.value
+                    sendMessage = JSON.stringify(sendMessage)
+                    conn.send(sendMessage)
+                }
+
+                function SendSingleMessage(msg) {
+
+                }
+
+
+                onMounted(() => {
+                    console.log(`the component is now mounted.`)
+
+                    var msg = document.getElementById("msg");
+                    var log = document.getElementById("log");
+                    var client_list = document.getElementById("clientList")
+
+                    function AddMessageClient(){
+                        // 如果通讯客户端是在自己，无法添加
+                        if(currentClient.value == messageClient.value){
+                            alert("无法添加自己")
+                            return false
+                        }
+                        // 发送消息，向WSS获取添加客户端的公钥
+                        ConnectClientReq()
+
+                        // 不管是否请求到了公钥，先添加客户端到前端列表中，发送消息的时候再检测
+                        var item = document.createElement("li");
+                        item.id = "message"
+                        item.addEventListener("click" ,ShowCommunicateClient)
+                        item.innerText = messageClient.value;
+                        client_list.appendChild(item)
+                    }
+
+                    function appendLog(item) {
+                        var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
+                        log.appendChild(item);
+                        if (doScroll) {
+                            log.scrollTop = log.scrollHeight - log.clientHeight;
+                        }
+                    }
+                    // 给“添加客户端”按钮增加一个点击事件
+                    document.getElementById("AddClient").onclick = AddMessageClient
+
+                    // 点击触发发送消息
+                    document.getElementById("form").onsubmit = function () {
+                        if (!conn) {
+                            return false;
+                        }
+                        if (!msg.value) {
+                            return false;
+                        }
+                        if (currentClient.value.length != 10) {
+                            alert("请先注册客户端，点击连接按钮")
+                            return false
+                        }
+                        if (communicateClinet.value === '0000000000'){
+                            SendGroupMessage(msg.value)
+                            // console.log("SendGroupMessage")
+                            msg.value = "";
+                            return false
+                        }
+                        // 如果是点对点消息，需要加密
+                        conn.send(msg.value);
+                        // ConnectMessageReq("4321")
+                        // conn.send(sendMessage)
+                        msg.value = "";
+                        return false;
+                    };
+
+                    if (window["WebSocket"]) {
+                        conn = new WebSocket("ws://" + document.location.host + "/ws");
+
+                        conn.onclose = function (evt) {
+                            var item = document.createElement("div");
+                            item.innerHTML = "<b>Connection closed.</b>";
+                            appendLog(item);
+                        };
+                        conn.onmessage = function (evt) {
+                            // 对消息进行解析
+                            console.log(evt.data)
+                            var res = JSON.parse(evt.data.toString())
+                            console.log(res["type"])
+                            if (res["type"] == 2) {
+                                currentClient.value = res["data"]["uuid"]
+                            }
+
+                            if (res["type"] == 4) {
+                                var messages = res["data"]["content"].split('\n');
+                                for (var i = 0; i < messages.length; i++) {
+                                    var item = document.createElement("div");
+                                    item.id = "message"
+                                    item.setAttribute("title",res["data"]["send_uuid"])
+                                    item.addEventListener("click" ,function(event){
+                                        messageClient.value = event.target.title
+                                    })
+                                    item.innerText = messages[i];
+                                    appendLog(item);
+                                }
+                            }
+
+                            if (res["type"] == 6) {
+                               // clientToPubkey[res["data"]["add_client"].toString()] = res["data"]["pubkey"]
+                                clientToPubkey.set(res["data"]["add_client"],res["data"]["pubkey"])
+                                console.log("存储的公钥：",clientToPubkey)
+                            }
+                            // 输出完整未解析的消息
+                            // var messages = evt.data.split('\n');
+                            // for (var i = 0; i < messages.length; i++) {
+                            //     var item = document.createElement("div");
+                            //     item.id = "message"
+                            //     // 获取value失败，改成获取value
+                            //     // item.setAttribute("value","123456")
+                            //     item.setAttribute("title","123456")
+                            //     // item.setAttribute("onclick","ShowMessageClient")
+                            //     item.addEventListener("click" ,function(event){
+                            //         // console.log(event.target.title)
+                            //         messageClient.value = event.target.title
+                            //     })
+                            //
+                            //     item.innerText = messages[i];
+                            //     appendLog(item);
+                            // }
+                        };
+                    } else {
+                        var item = document.createElement("div");
+                        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+                        appendLog(item);
+                    }
+                })
+
                 return {
                     message,
-                    currentClinet,
+                    communicateClinet,
+                    messageClient,
+                    currentClient,
                     ShowCommunicateClient,
-                    ShowMessageClient
+                    ShowMessageClient,
+                    ConnectMessageReq
                 }
             }
         }).mount('#app')
 
-    </script>
-    <script type="text/javascript">
-        window.onload = function () {
-            var conn;
-            var msg = document.getElementById("msg");
-            var log = document.getElementById("log");
-
-            function appendLog(item) {
-                var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
-                log.appendChild(item);
-                if (doScroll) {
-                    log.scrollTop = log.scrollHeight - log.clientHeight;
-                }
-            }
-
-            document.getElementById("form").onsubmit = function () {
-                if (!conn) {
-                    return false;
-                }
-                if (!msg.value) {
-                    return false;
-                }
-                conn.send(msg.value);
-                msg.value = "";
-                return false;
-            };
-
-            if (window["WebSocket"]) {
-                conn = new WebSocket("ws://" + document.location.host + "/ws");
-
-                conn.onclose = function (evt) {
-                    var item = document.createElement("div");
-                    item.innerHTML = "<b>Connection closed.</b>";
-                    appendLog(item);
-                };
-                conn.onmessage = function (evt) {
-                    // 对消息进行解析
-
-                    var messages = evt.data.split('\n');
-                    for (var i = 0; i < messages.length; i++) {
-                        var item = document.createElement("div");
-                        item.id = "message"
-                        // 获取value失败，改成获取value
-                        // item.setAttribute("value","123456")
-                        item.setAttribute("title","123456")
-                        // item.setAttribute("onclick","ShowMessageClient")
-                        item.addEventListener("click" ,function(event){
-                            console.log(event.target.title)
-                        })
-
-                        item.innerText = messages[i];
-                        appendLog(item);
-                    }
-                };
-            } else {
-                var item = document.createElement("div");
-                item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
-                appendLog(item);
-            }
-        };
     </script>
 
 </head>
 <body>
     <div class="ChatBox" id="app">
         <div class="BoxHead">
-            <span style="margin: 2px">通讯客户端：{{currentClinet}}</span>
-            <span style="margin: 2px">当前客户端：</span>
-            <span style="margin: 2px">消息客户端：</span>
+            <span style="margin: 2px">通讯客户端：{{communicateClinet}}</span>
+            <span style="margin: 2px">当前客户端：{{currentClient}}</span>
+            <span style="margin: 2px">消息客户端：{{messageClient}}</span>
+            <button @click="ConnectMessageReq" id="ConnectButton">连接</button>
+            <button id="AddClient">添加客户端</button>
         </div>
         <div class="BoxContent">
             <div class="ContentLeft">
-                <ul class="LeftList">
-                    <li @click="ShowCommunicateClient">Coffee</li>
-                    <li @click="ShowCommunicateClient">fruit</li>
-                    <li @click="ShowCommunicateClient">{{message}}</li>
+                <ul class="LeftList" id="clientList">
+                    <li @click="ShowCommunicateClient">0000000000</li>
                 </ul>
             </div>
             <div class="ContentRight">
