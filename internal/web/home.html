@@ -38,7 +38,8 @@
                 // const clientToMessage = new Map()
                 // clientToMessage.set('0000000000',Array())
                 // 创建数组存储对象形式
-                const clientToMessage = []
+                // 还是删除吧！不开发聊天记录存储功能，只要切换的通讯客户端，之前的消息就会消失
+                // const clientToMessage = []
 
                 function ShowCommunicateClient(event){
                     console.log(event.target.textContent)
@@ -122,6 +123,7 @@
                     sendMessage = JSON.stringify(sendMessage)
                     console.log("加密消息：",sendMessage)
                     conn.send(sendMessage)
+
                 }
 
 
@@ -183,6 +185,19 @@
                         }
                         // 如果是点对点消息，需要加密
                         SendSingleMessage(msg.value)
+                        // 将该消息显示再窗口
+                        var messages = msg.value.split('\n');
+                        for (var i = 0; i < messages.length; i++) {
+                            var item = document.createElement("div");
+                            item.id = "message"
+                            item.setAttribute("title",currentClient.value)
+                            item.style.textAlign = "right"
+                            item.addEventListener("click" ,function(event){
+                                messageClient.value = event.target.title
+                            })
+                            item.innerText = messages[i];
+                            appendLog(item);
+                        }
                        // clientToMessage.set(messageClient,["----------"])
                         // ConnectMessageReq("4321")
                         // conn.send(sendMessage)
@@ -227,14 +242,23 @@
                             if (res["type"] == 6) {
                                // clientToPubkey[res["data"]["add_client"].toString()] = res["data"]["pubkey"]
                                 clientToPubkey.set(res["data"]["add_client"],res["data"]["pubkey"])
-                                if(clientToMessage.hasOwnProperty(res["data"]["add_client"]) == false){
-                                        // 添加节点
-                                        var item = document.createElement("li");
-                                        item.id = "message"
-                                        item.addEventListener("click" ,ShowCommunicateClient)
-                                        item.innerText = res["data"]["add_client"];
-                                        client_list.appendChild(item)
-                                }
+
+
+                                // if(clientToMessage.hasOwnProperty(res["data"]["add_client"]) == false){
+                                //         // 添加节点
+                                //         var item = document.createElement("li");
+                                //         item.id = "message"
+                                //         item.addEventListener("click" ,ShowCommunicateClient)
+                                //         item.innerText = res["data"]["add_client"];
+                                //         client_list.appendChild(item)
+                                // }
+
+                                var item = document.createElement("li");
+                                item.id = "message"
+                                item.addEventListener("click" ,ShowCommunicateClient)
+                                item.innerText = res["data"]["add_client"];
+                                client_list.appendChild(item)
+
                             }
                             if (res["type"] == 7) {
                                 var prv = KEYUTIL.getKey(prvKey);
@@ -243,7 +267,8 @@
                                 //clientToMessage.push({"recv_uuid":res["data"]["recv_uuid"],"send_uuid":res["data"]["send_uuid"],"content":res["data"]["content"]})
                                 // clientToMessage.get(res["data"]["recv_uuid"]).push({"send_uuid":res["data"]["send_uuid"],"content":res["data"]["content"]})
                                 if(communicateClinet.value == res["data"]["send_uuid"]){
-                                    var messages = res["data"]["content"].split('\n');
+                                    // var messages = res["data"]["content"].split('\n');
+                                    var messages = dec_msg.split('\n')
                                     for (var i = 0; i < messages.length; i++) {
                                         var item = document.createElement("div");
                                         item.id = "message"
