@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-    <title>Chat Example</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ssChat - 简单安全的Web聊天</title>
     <link rel="stylesheet" href="/web/css/home.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/8.0.20/jsrsasign-all-min.js"></script>
@@ -34,22 +36,59 @@
 
                 // 存储密钥对
                 const clientToPubkey = new Map()
-                // 存储节点信息
-                // const clientToMessage = new Map()
-                // clientToMessage.set('0000000000',Array())
-                // 创建数组存储对象形式
-                // 还是删除吧！不开发聊天记录存储功能，只要切换的通讯客户端，之前的消息就会消失
-                // const clientToMessage = []
+                // 按会话存储聊天记录：key为对方UUID（广播频道固定为0000000000）
+                // 切换会话时从记录中恢复，不再清空（仍是前端内存存储，刷新页面后消失）
+                const clientToMessage = new Map()
+                clientToMessage.set('0000000000', [])
+
+                // 生成一条消息气泡（sender同时作为title，点击可选中该客户端）
+                function makeBubble(sender, text, cls) {
+                    var item = document.createElement("div");
+                    item.className = cls
+                    item.setAttribute("title",sender)
+                    item.addEventListener("click" ,function(event){
+                        messageClient.value = event.target.title
+                    })
+                    item.innerText = text;
+                    return item
+                }
+
+                // 追加气泡到消息窗口（带自动滚动，与appendLog逻辑一致）
+                function appendBubble(item) {
+                    var f = document.getElementById("log")
+                    var doScroll = f.scrollTop > f.scrollHeight - f.clientHeight - 1;
+                    f.appendChild(item);
+                    if (doScroll) {
+                        f.scrollTop = f.scrollHeight - f.clientHeight;
+                    }
+                }
+
+                // 消息写入对应会话的记录；若该会话正是当前打开的，同时实时显示到窗口
+                function pushMessage(convId, sender, text, cls) {
+                    if (!clientToMessage.has(convId)) {
+                        clientToMessage.set(convId, [])
+                    }
+                    clientToMessage.get(convId).push({sender: sender, text: text, cls: cls})
+                    if (convId === communicateClinet.value) {
+                        appendBubble(makeBubble(sender, text, cls))
+                    }
+                }
+
+                // 切换会话时，从记录中恢复该会话的聊天记录
+                function renderConversation(convId) {
+                    var f = document.getElementById("log")
+                    f.innerHTML = ""
+                    var msgs = clientToMessage.get(convId) || []
+                    for (var i = 0; i < msgs.length; i++) {
+                        appendBubble(makeBubble(msgs[i].sender, msgs[i].text, msgs[i].cls))
+                    }
+                }
 
                 function ShowCommunicateClient(event){
                     console.log(event.target.textContent)
                     if(communicateClinet.value != event.target.textContent){
-                        // 删除原来的消息
-                        var f = document.getElementById("log")
-                        var childs = f.childNodes;
-                        for(var i=0;i<childs.length;i++){
-                            f.removeChild(childs[i])
-                        }
+                        // 切换会话：从存储恢复目标会话的聊天记录（不清空）
+                        renderConversation(event.target.textContent)
                     }
                     communicateClinet.value = event.target.textContent
                 }
@@ -185,22 +224,11 @@
                         }
                         // 如果是点对点消息，需要加密
                         SendSingleMessage(msg.value)
-                        // 将该消息显示再窗口
+                        // 将该消息写入当前会话的记录并显示
                         var messages = msg.value.split('\n');
                         for (var i = 0; i < messages.length; i++) {
-                            var item = document.createElement("div");
-                            item.id = "message"
-                            item.setAttribute("title",currentClient.value)
-                            item.style.textAlign = "right"
-                            item.addEventListener("click" ,function(event){
-                                messageClient.value = event.target.title
-                            })
-                            item.innerText = messages[i];
-                            appendLog(item);
+                            pushMessage(communicateClinet.value, currentClient.value, messages[i], "msg own")
                         }
-                       // clientToMessage.set(messageClient,["----------"])
-                        // ConnectMessageReq("4321")
-                        // conn.send(sendMessage)
                         msg.value = "";
                         return false;
                     };
@@ -210,6 +238,7 @@
 
                         conn.onclose = function (evt) {
                             var item = document.createElement("div");
+                            item.className = "sys"
                             item.innerHTML = "<b>Connection closed.</b>";
                             appendLog(item);
                         };
@@ -223,20 +252,12 @@
                             }
 
                             if (res["type"] == 4) {
-                                //clientToMessage.push({"recv_uuid":'0000000000',"send_uuid":res["data"]["send_uuid"],"content":res["data"]["content"]})
-                                    if(communicateClinet.value === '0000000000'){
-                                        var messages = res["data"]["content"].split('\n');
-                                        for (var i = 0; i < messages.length; i++) {
-                                            var item = document.createElement("div");
-                                            item.id = "message"
-                                            item.setAttribute("title",res["data"]["send_uuid"])
-                                            item.addEventListener("click" ,function(event){
-                                                messageClient.value = event.target.title
-                                            })
-                                            item.innerText = messages[i];
-                                            appendLog(item);
-                                        }
-                                    }
+                                // 广播消息存入广播频道的会话记录（自己发出的回显在右侧，别人的在左侧）
+                                var cls = res["data"]["send_uuid"] === currentClient.value ? "msg own" : "msg other"
+                                var messages = res["data"]["content"].split('\n');
+                                for (var i = 0; i < messages.length; i++) {
+                                    pushMessage('0000000000', res["data"]["send_uuid"], messages[i], cls)
+                                }
                             }
 
                             if (res["type"] == 6) {
@@ -264,22 +285,10 @@
                                 var prv = KEYUTIL.getKey(prvKey);
                                 var dec_msg = KJUR.crypto.Cipher.decrypt(res["data"]["content"],prv);
                                 console.log("解密内容:",dec_msg)
-                                //clientToMessage.push({"recv_uuid":res["data"]["recv_uuid"],"send_uuid":res["data"]["send_uuid"],"content":res["data"]["content"]})
-                                // clientToMessage.get(res["data"]["recv_uuid"]).push({"send_uuid":res["data"]["send_uuid"],"content":res["data"]["content"]})
-                                if(communicateClinet.value == res["data"]["send_uuid"]){
-                                    // var messages = res["data"]["content"].split('\n');
-                                    var messages = dec_msg.split('\n')
-                                    for (var i = 0; i < messages.length; i++) {
-                                        var item = document.createElement("div");
-                                        item.id = "message"
-                                        item.setAttribute("title",res["data"]["send_uuid"])
-                                        item.addEventListener("click" ,function(event){
-                                            messageClient.value = event.target.title
-                                        })
-                                        item.innerText = messages[i];
-                                        appendLog(item);
-                                    }
-                                // }
+                                // 收到的点对点消息以发送者为会话key存入记录（在其他会话时收到也不丢，切过来即可见）
+                                var messages = dec_msg.split('\n')
+                                for (var i = 0; i < messages.length; i++) {
+                                    pushMessage(res["data"]["send_uuid"], res["data"]["send_uuid"], messages[i], "msg other")
                                 }
                             }
 
@@ -305,6 +314,7 @@
                         };
                     } else {
                         var item = document.createElement("div");
+                        item.className = "sys"
                         item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
                         appendLog(item);
                     }
@@ -328,96 +338,37 @@
 <body>
     <div class="ChatBox" id="app">
         <div class="BoxHead">
-            <span style="margin: 2px">通讯客户端：{{communicateClinet}}</span>
-            <span style="margin: 2px">当前客户端：{{currentClient}}</span>
-            <span style="margin: 2px">消息客户端：{{messageClient}}</span>
-            <button @click="ConnectMessageReq" id="ConnectButton">连接</button>
-            <button id="AddClient">添加客户端</button>
+            <div class="Brand">
+                <span class="BrandDot"></span>
+                <span>ssChat</span>
+                <span class="BrandTag">简单 · 安全</span>
+            </div>
+            <div class="StatusChips">
+                <span class="chip">通讯客户端<b>{{communicateClinet}}</b></span>
+                <span class="chip">当前客户端<b>{{currentClient}}</b></span>
+                <span class="chip">消息客户端<b>{{messageClient}}</b></span>
+            </div>
+            <div class="Actions">
+                <button class="btn btn-primary" @click="ConnectMessageReq" id="ConnectButton">连接</button>
+                <button class="btn btn-ghost" id="AddClient">添加客户端</button>
+            </div>
         </div>
         <div class="BoxContent">
-            <div class="ContentLeft">
+            <aside class="ContentLeft">
+                <div class="SideTitle">广播频道 / 联系人</div>
                 <ul class="LeftList" id="clientList">
                     <li @click="ShowCommunicateClient">0000000000</li>
                 </ul>
-            </div>
-            <div class="ContentRight">
-
+            </aside>
+            <main class="ContentRight">
                 <div id="log"></div>
                 <form id="form">
-                    <input type="submit" value="Send" />
-                    <input type="text" id="msg" size="64" autofocus />
+                    <input type="text" id="msg" placeholder="输入消息，回车发送（点击消息可添加对方为联系人）" autofocus />
+                    <input type="submit" value="发送" />
                 </form>
-
-            </div>
+            </main>
         </div>
-
     </div>
 
 </body>
-<style>
-/*不知道为什么，样式移入到home.css就失效了，可能是浏览器缓存没更新，先写在这里*/
-    .ChatBox{
-        width: 798px;
-        height: 600px;
-        border: 1px solid #ccc;
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        margin: auto;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-    }
-
-    .BoxHead{
-        width: 100%;
-        height: 52px;
-        display: -webkit-box;
-        -webkit-box-orient: horizontal;
-        background-color: antiquewhite;
-        background: url("/web/image/head_background.jpg") no-repeat;
-    }
-
-    .BoxContent{
-        -webkit-box-flex: 1;
-        display: -webkit-box;
-        -webkit-box-orient: horizontal;
-        --bs-gutter-x: 0rem;
-    }
-
-    .ContentLeft{
-        width: 200px;
-        overflow: auto;
-        background: darkcyan;
-    }
-
-    .ContentRight{
-        -webkit-box-flex: 1;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        background-color: aquamarine;
-    }
-
-    .LeftList{
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        li{
-            height: 30px;
-            background-color: bisque;
-            margin: 2px;
-        }
-    }
-</style>
-
-<style>
-    #message{
-        margin: 2px;
-        border: 1px solid #ccc;
-    }
-</style>
-<script>
-
-</script>
 </html>

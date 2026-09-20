@@ -1,0 +1,7 @@
+services:
+  sschat:
+    image: registry.cn-hangzhou.aliyuncs.com/app_service_haisen/ss-chat:2.0
+    container_name: sschat
+    restart: unless-stopped
+    ports:
+      - "1315:8080"
